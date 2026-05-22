@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><title>User Validation</title><style>body{font-family:sans-serif;padding:2rem;} form{display:flex;flex-direction:column;gap:1rem;max-width:300px;} input,button{padding:0.5rem;} .result{margin-top:1rem;font-weight:bold;color:#333;}</style></head>
+<body>
+  <h2>🔐 User Validation Portal</h2>
+  <form method="post" action="/validate">
+    <label>Username:</label><input type="text" name="username" value="{{ username or '' }}" required>
+    <label>Password:</label><input type="password" name="password" required>
+    <button type="submit">Validate</button>
+  </form>
+  {% if result %}<p class="result">{{ result }}</p>{% endif %}
+</body>
+</html>

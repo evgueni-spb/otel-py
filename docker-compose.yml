@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports: ["8001:8000"]
+    environment:
+      - OTEL_SERVICE_NAME=backend
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://fluentbit:4318
+    volumes:
+      - db_data:/data
+    depends_on: [fluentbit]
+    networks: [app_net]
+
+  frontend:
+    build: ./frontend
+    ports: ["8000:8000"]
+    environment:
+      - OTEL_SERVICE_NAME=frontend
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://fluentbit:4318
+      - BACKEND_URL=http://backend:8000
+    depends_on: [backend, fluentbit]
+    networks: [app_net]
+
+  fluentbit:
+    image: fluent/fluent-bit:3.0
+    ports: ["4318:4318", "2021:2021"]
+    volumes:
+      - ./fluentbit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf
+    networks: [app_net]
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["9090:9090"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on: [fluentbit]
+    networks: [app_net]
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["3000:3000"]
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/auth-monitor.json
+    depends_on: [prometheus]
+    networks: [app_net]
+
+volumes:
+  db_data:
+
+networks:
+  app_net:
+    driver: bridge
