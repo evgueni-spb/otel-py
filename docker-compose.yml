@@ -2,29 +2,45 @@ version: '3.8'
 
 services:
   backend:
-    build: ./backend
+    build: .\backend
     ports: ["8001:8000"]
     environment:
       - OTEL_SERVICE_NAME=backend
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://fluentbit:4318
     volumes:
       - db_data:/data
-    depends_on: [fluentbit]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks: [app_net]
 
   frontend:
-    build: ./frontend
+    build: .\frontend
     ports: ["8000:8000"]
     environment:
       - OTEL_SERVICE_NAME=frontend
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://fluentbit:4318
       - BACKEND_URL=http://backend:8000
-    depends_on: [backend, fluentbit]
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks: [app_net]
 
   fluentbit:
     image: fluent/fluent-bit:3.0
-    ports: ["4318:4318", "2021:2021"]
+    ports: 
+      - "4318:4318"
+      - "2021:2021"
+      - "2020:2020"
     volumes:
       - ./fluentbit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf
     networks: [app_net]
@@ -34,7 +50,11 @@ services:
     ports: ["9090:9090"]
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-    depends_on: [fluentbit]
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
     networks: [app_net]
 
   grafana:
@@ -47,7 +67,9 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/auth-monitor.json
-    depends_on: [prometheus]
+    depends_on:
+      prometheus:
+        condition: service_started
     networks: [app_net]
 
 volumes:
