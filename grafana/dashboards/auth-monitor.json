@@ -1,26 +1,15 @@
 {
-  "dashboard": {
-    "id": null, "uid": "auth-monitor", "title": "Auth Service Telemetry",
-    "timezone": "browser", "schemaVersion": 30, "refresh": "10s",
-    "panels": [
-      {
-        "id": 1, "title": "Total Login Attempts", "type": "stat", "gridPos": {"h": 8, "w": 6},
-        "targets": [{"expr": "sum(auth_login_attempts_total)", "legendFormat": "Total"}]
-      },
-      {
-        "id": 2, "title": "Success Rate", "type": "gauge", "gridPos": {"h": 8, "w": 6},
-        "targets": [{"expr": "sum(auth_login_success_total) / sum(auth_login_attempts_total)", "legendFormat": "Rate"}],
-        "fieldConfig": {"defaults": {"min": 0, "max": 1, "unit": "percentunit"}}
-      },
-      {
-        "id": 3, "title": "Backend Validation Latency (p95)", "type": "timeseries", "gridPos": {"h": 8, "w": 12},
-        "targets": [{"expr": "histogram_quantile(0.95, sum(rate(auth_login_duration_seconds_bucket[5m])) by (le, status))", "legendFormat": "p95 {{status}}"}]
-      },
-      {
-        "id": 4, "title": "Frontend Backend Calls", "type": "timeseries", "gridPos": {"h": 8, "w": 12},
-        "targets": [{"expr": "sum(rate(frontend_backend_call_duration_seconds_sum[1m])) by (status)", "legendFormat": "{{status}}"}]
-      }
-    ]
-  },
-  "overwrite": true
+  "uid": "auth-monitor",
+  "title": "Auth Service Telemetry",
+  "tags": ["auth", "otel"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "time": {"from": "now-15m", "to": "now"},
+  "panels": [
+    {"id": 1, "title": "Total Login Attempts", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}, "targets": [{"expr": "sum(auth_login_attempts)", "refId": "A"}]},
+    {"id": 2, "title": "Success Rate", "type": "gauge", "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}, "targets": [{"expr": "sum(auth_login_success) / sum(auth_login_attempts)", "refId": "A"}], "fieldConfig": {"defaults": {"min": 0, "max": 1, "unit": "percentunit"}}},
+    {"id": 3, "title": "Backend Latency (p95)", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}, "targets": [{"expr": "histogram_quantile(0.95, sum(rate(auth_login_duration_seconds_sum[5m])) by (le, status))", "refId": "A"}], "fieldConfig": {"defaults": {"unit": "s"}}}
+  ],
+  "links": [{"title": "Open in Jaeger UI", "url": "http://localhost:16686", "icon": "external link", "targetBlank": true}]
 }

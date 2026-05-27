@@ -4,55 +4,40 @@ from pydantic import BaseModel
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter, Histogram
 
-# OTel imports (stable APIs for v1.24.0)
-from opentelemetry import trace, metrics
+# OTel Imports
+from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.logging import LoggingInstrumentor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "backend")
-OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://fluentbit:4318")
+OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "jaeger:4317")
 resource = Resource.create({"service.name": SERVICE_NAME})
 
-try:
-    # Tracing
-    trace.set_tracer_provider(TracerProvider(resource=resource))
-    trace.get_tracer_provider().add_span_processor(
-        BatchSpanProcessor(OTLPSpanExporter(endpoint=f"{OTEL_ENDPOINT}/v1/traces"))
-    )
-    # Metrics
-    metrics.set_meter_provider(MeterProvider(resource=resource))
-    metrics.get_meter_provider().add_metric_reader(
-        PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=f"{OTEL_ENDPOINT}/v1/metrics"), export_interval_millis=5000)
-    )
-    # Logs via LoggingInstrumentor bridge
-    LoggingInstrumentor().instrument()
-    logger.info("✅ OpenTelemetry initialized")
-except Exception as e:
-    logger.warning(f"⚠️ OTel init failed (app continues without telemetry): {e}")
+trace.set_tracer_provider(TracerProvider(resource=resource))
+trace.get_tracer_provider().add_span_processor(
+    BatchSpanProcessor(OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=True))
+)
 
-app = FastAPI(title="Auth Backend")
+# ✅ 1. Create App
+app = FastAPI()
+
+# ✅ 2. Instrument App (Must be after creation to extract headers correctly)
 FastAPIInstrumentor.instrument_app(app)
+
+# ✅ 3. Setup Metrics
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
-meter = metrics.get_meter(SERVICE_NAME)
 tracer = trace.get_tracer(SERVICE_NAME)
-
-# Prometheus Metrics
-login_attempts = Counter("auth_login_attempts_total", "Total login attempts", ["auth_method"])
-login_success = Counter("auth_login_success_total", "Successful logins", ["username"])
+login_attempts = Counter("auth_login_attempts", "Total login attempts", ["auth_method"])
+login_success = Counter("auth_login_success", "Successful logins", ["username"])
 login_duration = Histogram("auth_login_duration_seconds", "Login validation time", ["status"])
 
-# SQLite Setup
 DB_PATH = "/data/users.db"
 os.makedirs("/data", exist_ok=True)
 def init_db():
@@ -62,7 +47,6 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users VALUES ('admin', 'admin123')")
         c.execute("INSERT OR IGNORE INTO users VALUES ('user', 'secret')")
         conn.commit()
-    logger.info("✅ Database initialized")
 init_db()
 
 class LoginRequest(BaseModel):
@@ -87,18 +71,15 @@ async def login(req: LoginRequest):
                 c.execute("SELECT password FROM users WHERE username=?", (req.username,))
                 row = c.fetchone()
             
-            time.sleep(0.05)  # Simulate latency
+            time.sleep(0.05)
             valid = row and row[0] == req.password
-            duration = time.time() - start
-            login_duration.labels(status="success" if valid else "failure").observe(duration)
+            login_duration.labels(status="success" if valid else "failure").observe(time.time() - start)
 
             if valid:
+                span.set_attribute("auth.valid", True)
                 login_success.labels(username=req.username).inc()
-                logger.info(f"✅ Login success: {req.username}")
-                return {"status": "success", "message": "Validated"}
-            else:
-                logger.warning("❌ Invalid credentials")
-                raise HTTPException(status_code=401, detail="Invalid credentials")
-        except sqlite3.Error as e:
-            logger.error(f"DB Error: {e}")
-            raise HTTPException(status_code=500, detail="Database error")
+                return {"status": "success"}
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        except Exception as e:
+            span.record_exception(e)
+            raise HTTPException(status_code=500, detail=str(e))

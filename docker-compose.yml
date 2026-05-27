@@ -6,9 +6,12 @@ services:
     ports: ["8001:8000"]
     environment:
       - OTEL_SERVICE_NAME=backend
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://fluentbit:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=jaeger:4317  # ✅ Correct: gRPC port 4317
     volumes:
       - db_data:/data
+    depends_on:
+      jaeger:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -22,10 +25,12 @@ services:
     ports: ["8000:8000"]
     environment:
       - OTEL_SERVICE_NAME=frontend
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://fluentbit:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=jaeger:4317  # ✅ Correct: gRPC port 4317
       - BACKEND_URL=http://backend:8000
     depends_on:
       backend:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
@@ -35,14 +40,21 @@ services:
       start_period: 20s
     networks: [app_net]
 
-  fluentbit:
-    image: fluent/fluent-bit:3.0
-    ports: 
-      - "4318:4318"
-      - "2021:2021"
-      - "2020:2020"
-    volumes:
-      - ./fluentbit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf
+  jaeger:
+    image: jaegertracing/all-in-one:1.55
+    ports:
+      - "16686:16686"  # UI
+      - "4317:4317"    # OTLP gRPC (This is where apps connect)
+      - "4318:4318"    # OTLP HTTP (Optional, unused here)
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:14269/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks: [app_net]
 
   prometheus:
@@ -61,15 +73,16 @@ services:
     image: grafana/grafana:latest
     ports: ["3000:3000"]
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/auth-monitor.json
     depends_on:
       prometheus:
         condition: service_started
+      jaeger:
+        condition: service_healthy
     networks: [app_net]
 
 volumes:

@@ -12,8 +12,3 @@ scrape_configs:
     metrics_path: '/metrics'
     static_configs:
       - targets: ['frontend:8000']
-
-  - job_name: 'fluentbit_metrics'
-    metrics_path: '/api/v1/metrics/prometheus'
-    static_configs:
-      - targets: ['fluentbit:2021']
