@@ -6,11 +6,11 @@ services:
     ports: ["8001:8000"]
     environment:
       - OTEL_SERVICE_NAME=backend
-      - OTEL_EXPORTER_OTLP_ENDPOINT=jaeger:4317  # ✅ Correct: gRPC port 4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
     volumes:
       - db_data:/data
     depends_on:
-      jaeger:
+      otel-collector:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -25,12 +25,12 @@ services:
     ports: ["8000:8000"]
     environment:
       - OTEL_SERVICE_NAME=frontend
-      - OTEL_EXPORTER_OTLP_ENDPOINT=jaeger:4317  # ✅ Correct: gRPC port 4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
       - BACKEND_URL=http://backend:8000
     depends_on:
       backend:
         condition: service_healthy
-      jaeger:
+      otel-collector:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
@@ -40,15 +40,31 @@ services:
       start_period: 20s
     networks: [app_net]
 
+  otel-collector:
+    image: otel/opentelemetry-collector:0.95.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "4317:4317"  # ✅ OTel Collector claims the Host Port 4317 for App ingestion
+      - "4318:4318"  # OTLP HTTP
+      - "8889:8889"  # Prometheus Metrics
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133/"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks: [app_net]
+
   jaeger:
     image: jaegertracing/all-in-one:1.55
     ports:
-      - "16686:16686"  # UI
-      - "4317:4317"    # OTLP gRPC (This is where apps connect)
-      - "4318:4318"    # OTLP HTTP (Optional, unused here)
+      - "16686:16686"  # Jaeger UI
+      # ✅ REMOVED "4317:4317" to avoid conflict. 
+      # Collector connects to Jaeger via internal Docker DNS on port 4317.
     environment:
       - COLLECTOR_OTLP_ENABLED=true
-      - LOG_LEVEL=info
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:14269/"]
       interval: 10s
@@ -63,9 +79,7 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     depends_on:
-      backend:
-        condition: service_healthy
-      frontend:
+      otel-collector:
         condition: service_healthy
     networks: [app_net]
 
