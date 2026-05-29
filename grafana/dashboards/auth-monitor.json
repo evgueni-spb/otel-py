@@ -15,12 +15,7 @@
       "type": "stat",
       "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
       "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(auth_login_attempts_total)",
-          "legendFormat": "Total",
-          "refId": "A"
-        }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(auth_login_attempts_total)", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" } } }
     },
@@ -30,28 +25,9 @@
       "type": "gauge",
       "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 },
       "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(auth_login_success_total) / sum(auth_login_attempts_total)",
-          "legendFormat": "Rate",
-          "refId": "A"
-        }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(auth_login_success_total) / sum(auth_login_attempts_total)", "refId": "A" }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "min": 0, "max": 1,
-          "unit": "percentunit",
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.7 },
-              { "color": "green", "value": 0.9 }
-            ]
-          }
-        }
-      }
+      "fieldConfig": { "defaults": { "min": 0, "max": 1, "unit": "percentunit", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.7 }, { "color": "green", "value": 0.9 }] } } }
     },
     {
       "id": 3,
@@ -66,26 +42,22 @@
           "refId": "A"
         }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
-      }
+      "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "palette-classic" } } }
     },
     {
       "id": 4,
-      "title": "HTTP Request Rate (FastAPI Auto-Metrics)",
+      "title": "HTTP Request Rate (OTel Auto-Metrics)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(http_requests_total[1m])) by (method, handler)",
-          "legendFormat": "{{method}} {{handler}}",
+          "expr": "sum(rate(http_server_duration_milliseconds_count[1m])) by (http_method, http_route)",
+          "legendFormat": "{{http_method}} {{http_route}}",
           "refId": "A"
         }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "ops", "color": { "mode": "palette-classic" } }
-      }
+      "fieldConfig": { "defaults": { "unit": "ops", "color": { "mode": "palette-classic" } } }
     }
   ],
   "annotations": { "list": [] }

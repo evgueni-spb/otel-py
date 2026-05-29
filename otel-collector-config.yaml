@@ -11,7 +11,7 @@ processors:
 
 exporters:
   debug:
-    verbosity: detailed
+    verbosity: basic
   prometheus:
     endpoint: 0.0.0.0:8889
   otlp/jaeger:
@@ -19,7 +19,15 @@ exporters:
     tls:
       insecure: true
 
+extensions:
+  health_check:  # ✅ Must be defined
+    endpoint: 0.0.0.0:13133
+    path: /
+    check_collector_pipeline:
+      enabled: false
+
 service:
+  extensions: [health_check]  # ✅ Must be activated here
   pipelines:
     traces:
       receivers: [otlp]

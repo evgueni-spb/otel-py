@@ -11,13 +11,13 @@ services:
       - db_data:/data
     depends_on:
       otel-collector:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     networks: [app_net]
 
   frontend:
@@ -31,7 +31,7 @@ services:
       backend:
         condition: service_healthy
       otel-collector:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
       interval: 10s
@@ -44,19 +44,13 @@ services:
     image: otel/opentelemetry-collector:0.95.0
     command: ["--config=/etc/otelcol/config.yaml"]
     ports:
-      - "4317:4317"  # ✅ OTel Collector claims the Host Port 4317 for App ingestion
+      - "4317:4317"  # OTLP gRPC
       - "4318:4318"  # OTLP HTTP
-      - "8889:8889"  # Prometheus Metrics
+      - "8889:8889"  # Prometheus metrics
+      - "13133:13133"  # Health check endpoint (optional, for debugging)
     volumes:
-      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133/"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     networks: [app_net]
-
   jaeger:
     image: jaegertracing/all-in-one:1.55
     ports:
@@ -80,7 +74,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     depends_on:
       otel-collector:
-        condition: service_healthy
+        condition: service_started
     networks: [app_net]
 
   grafana:
