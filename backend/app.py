@@ -3,6 +3,11 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from opentelemetry import trace, metrics
+from opentelemetry._logs import set_logger_provider
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs.export import SimpleLogRecordProcessor
+# ✅ CORRECT: underscore required in v1.31.0
+from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -13,31 +18,37 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.sdk.resources import Resource
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
-
 SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "backend")
-OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "otel-collector:4317")
 resource = Resource.create({"service.name": SERVICE_NAME})
 
-# 1. Tracing
+# 1. Tracing (gRPC)
 trace.set_tracer_provider(TracerProvider(resource=resource))
 trace.get_tracer_provider().add_span_processor(
-    BatchSpanProcessor(OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=True))
+    BatchSpanProcessor(OTLPSpanExporter(endpoint="otel-collector:4317", insecure=True))
 )
 
-# 2. Metrics ✅ Fixed: metric_readers passed to constructor
+# 2. Metrics (gRPC)
 reader = PeriodicExportingMetricReader(
-    OTLPMetricExporter(endpoint=OTEL_ENDPOINT, insecure=True),
-    export_interval_millis=5000
+    OTLPMetricExporter(endpoint="otel-collector:4317", insecure=True), export_interval_millis=5000
 )
 metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[reader]))
 
-# 3. Logs
-LoggingInstrumentor().instrument()
+# 3. Logs (HTTP on port 4318)
+logs_provider = LoggerProvider(resource=resource)
+logs_provider.add_log_record_processor(
+    SimpleLogRecordProcessor(OTLPLogExporter(endpoint="http://otel-collector:4318"))
+)
+set_logger_provider(logs_provider)
 
-# 4. FastAPI Instrumentation
-app = FastAPI()
+# 4. Bridge standard logging (MUST be after set_logger_provider)
+LoggingInstrumentor().instrument(set_logging_format=True)
+
+# 5. Standard logging (AFTER bridge is active)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
+logger.info("🟢 Backend started - logs flowing to OpenSearch")
+
+app = FastAPI(title="Auth Backend")
 FastAPIInstrumentor.instrument_app(app)
 
 tracer = trace.get_tracer(SERVICE_NAME)
@@ -56,6 +67,7 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users VALUES ('admin', 'admin123')")
         c.execute("INSERT OR IGNORE INTO users VALUES ('user', 'secret')")
         conn.commit()
+    logger.info("✅ Database initialized")
 init_db()
 
 class LoginRequest(BaseModel):
@@ -79,7 +91,6 @@ async def login(req: LoginRequest):
                 c = conn.cursor()
                 c.execute("SELECT password FROM users WHERE username=?", (req.username,))
                 row = c.fetchone()
-            
             time.sleep(0.05)
             valid = row and row[0] == req.password
             login_duration.record(time.time() - start, {"status": "success" if valid else "failure"})
@@ -87,8 +98,11 @@ async def login(req: LoginRequest):
             if valid:
                 span.set_attribute("auth.valid", True)
                 login_success.add(1, {"username": req.username})
-                return {"status": "success"}
+                logger.info(f"✅ Login success: {req.username}")
+                return {"status": "success", "message": "Validated"}
+            logger.warning("❌ Invalid credentials")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         except Exception as e:
             span.record_exception(e)
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"Error: {e}")
+            raise HTTPException(status_code=500, detail="Internal error")

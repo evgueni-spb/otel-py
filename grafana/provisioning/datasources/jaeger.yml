@@ -4,4 +4,14 @@ datasources:
     type: jaeger
     access: proxy
     url: http://jaeger:16686
+    uid: jaeger
     editable: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: 'opensearch'  # ✅ Points to OpenSearch
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        tags: ['service.name']
+        filterByTraceID: true        # ✅ Auto-queries trace_id field
+        filterBySpanID: false
+        mapTagNamesEnabled: true

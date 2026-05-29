@@ -1,0 +1,19 @@
+apiVersion: 1
+datasources:
+  - name: OpenSearch
+    type: elasticsearch
+    access: proxy
+    url: http://opensearch:9200
+    uid: opensearch
+    editable: false
+    jsonData:
+      # ✅ CRITICAL: Matches OTel Collector's daily index naming
+      index: "otel-logs-*"
+      interval: "Daily"
+      timeField: "@timestamp"
+      logLevelField: "severity_text"
+      logMessageField: "body"
+      maxConcurrentShardRequests: 5
+      # Silences the EOL warning (OpenSearch 2.x is API-compatible with ES 7.10+)
+      version: "7.10.0"
+      timeInterval: "200ms"

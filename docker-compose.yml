@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   backend:
-    build: .\backend
+    build: ./backend
     ports: ["8001:8000"]
     environment:
       - OTEL_SERVICE_NAME=backend
@@ -11,17 +11,17 @@ services:
       - db_data:/data
     depends_on:
       otel-collector:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 20s
     networks: [app_net]
 
   frontend:
-    build: .\frontend
+    build: ./frontend
     ports: ["8000:8000"]
     environment:
       - OTEL_SERVICE_NAME=frontend
@@ -31,7 +31,7 @@ services:
       backend:
         condition: service_healthy
       otel-collector:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
       interval: 10s
@@ -41,22 +41,44 @@ services:
     networks: [app_net]
 
   otel-collector:
-    image: otel/opentelemetry-collector:0.95.0
+    image: otel/opentelemetry-collector-contrib:0.95.0  # ⚠️ MUST be -contrib
     command: ["--config=/etc/otelcol/config.yaml"]
     ports:
-      - "4317:4317"  # OTLP gRPC
-      - "4318:4318"  # OTLP HTTP
-      - "8889:8889"  # Prometheus metrics
-      - "13133:13133"  # Health check endpoint (optional, for debugging)
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+      - "13133:13133"
     volumes:
       - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133/"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
     networks: [app_net]
+
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    environment:
+      # ✅ Minimal, conflict-free settings for single-node dev
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [app_net]
+
   jaeger:
     image: jaegertracing/all-in-one:1.55
     ports:
-      - "16686:16686"  # Jaeger UI
-      # ✅ REMOVED "4317:4317" to avoid conflict. 
-      # Collector connects to Jaeger via internal Docker DNS on port 4317.
+      - "16686:16686"
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     healthcheck:
@@ -74,7 +96,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     depends_on:
       otel-collector:
-        condition: service_started
+        condition: service_healthy
     networks: [app_net]
 
   grafana:

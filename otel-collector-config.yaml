@@ -18,16 +18,17 @@ exporters:
     endpoint: jaeger:4317
     tls:
       insecure: true
-
+  elasticsearch:
+    endpoints: ["http://opensearch:9200"]
+    logs_index: "otel-logs"
+    tls:
+      insecure: true
 extensions:
-  health_check:  # ✅ Must be defined
+  health_check:
     endpoint: 0.0.0.0:13133
-    path: /
-    check_collector_pipeline:
-      enabled: false
 
 service:
-  extensions: [health_check]  # ✅ Must be activated here
+  extensions: [health_check]
   pipelines:
     traces:
       receivers: [otlp]
@@ -40,4 +41,4 @@ service:
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug]
+      exporters: [debug, elasticsearch]  # ✅ Updated to use elasticsearch exporter

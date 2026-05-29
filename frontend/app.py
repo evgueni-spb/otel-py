@@ -4,6 +4,11 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from opentelemetry import trace, metrics
+from opentelemetry._logs import set_logger_provider
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs.export import SimpleLogRecordProcessor
+# ✅ CORRECT: underscore required
+from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.propagate import inject
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.metrics import MeterProvider
@@ -16,31 +21,34 @@ from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.sdk.resources import Resource
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
-
 SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "frontend")
-OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "otel-collector:4317")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
 resource = Resource.create({"service.name": SERVICE_NAME})
 
 # 1. Tracing
 trace.set_tracer_provider(TracerProvider(resource=resource))
 trace.get_tracer_provider().add_span_processor(
-    BatchSpanProcessor(OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=True))
+    BatchSpanProcessor(OTLPSpanExporter(endpoint="otel-collector:4317", insecure=True))
 )
 
-# 2. Metrics ✅ Fixed: metric_readers passed to constructor
+# 2. Metrics
 reader = PeriodicExportingMetricReader(
-    OTLPMetricExporter(endpoint=OTEL_ENDPOINT, insecure=True),
-    export_interval_millis=5000
+    OTLPMetricExporter(endpoint="otel-collector:4317", insecure=True), export_interval_millis=5000
 )
 metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[reader]))
 
 # 3. Logs
-LoggingInstrumentor().instrument()
+logs_provider = LoggerProvider(resource=resource)
+logs_provider.add_log_record_processor(
+    SimpleLogRecordProcessor(OTLPLogExporter(endpoint="http://otel-collector:4318"))
+)
+set_logger_provider(logs_provider)
+LoggingInstrumentor().instrument(set_logging_format=True)
 
-# 4. Instrumentation
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
+logger.info("🟢 Frontend started - logs flowing to OpenSearch")
+
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
 HTTPXClientInstrumentor().instrument()
@@ -68,10 +76,8 @@ async def validate(request: Request):
     try:
         with tracer.start_as_current_span("call_backend") as span:
             span.set_attribute("backend.url", BACKEND_URL)
-            
             headers = {}
             inject(headers)
-            
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.post(f"{BACKEND_URL}/login", json={"username": username, "password": password}, headers=headers)
             success = resp.status_code == 200
